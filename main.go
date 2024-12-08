@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"time"
@@ -8,6 +9,22 @@ import (
 	"github.com/gen2brain/raylib-go/raygui"
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
+
+type Ball struct {
+	Pos    rl.Vector2 `json:"pos"`
+	Speed  rl.Vector2 `json:"speed"`
+	Radius float32    `json:"radius"`
+}
+type Player struct {
+	ID    int          `json:"id"`
+	Rec   rl.Rectangle `json:"rec"`
+	Score int          `json:"score"`
+}
+type Game struct {
+	Player1 Player `json:"player"`
+	Player2 Player `json:"player"`
+	Ball    Ball   `json:"ball"`
+}
 
 func main() {
 	// go server()
@@ -23,10 +40,11 @@ func client() {
 	rl.InitWindow(800, 450, "online pong")
 	rl.SetTargetFPS(60)
 	var conn *net.UDPConn
+	var serverAddr *net.UDPAddr
 	for !rl.WindowShouldClose() {
 
 		if isServerInited {
-			serverAddr := &net.UDPAddr{
+			serverAddr = &net.UDPAddr{
 				IP:   net.IPv4(127, 0, 0, 1),
 				Port: 12345,
 			}
@@ -35,9 +53,9 @@ func client() {
 			fmt.Println("conectado ao servidor, digite mensagens")
 			isServerInited = false
 		}
-
 		if inGame {
-			if rl.IsKeyDown(rl.KeyW) || rl.IsKeyDown(rl.KeyUp) {
+
+			if rl.IsKeyDown(rl.KeyW) {
 				_, err := conn.Write([]byte("up"))
 				if err != nil {
 					fmt.Println("erro ao enviar mensagem", err)
@@ -46,13 +64,12 @@ func client() {
 					fmt.Println("mensagem enviada")
 				}
 			}
-			if rl.IsKeyDown(rl.KeyS) || rl.IsKeyDown(rl.KeyDown) {
+			if rl.IsKeyDown(rl.KeyDown) {
 				_, err := conn.Write([]byte("down"))
 				if err != nil {
 					fmt.Println("erro ao enviar mensagem", err)
 					continue
 				} else {
-
 					fmt.Println("mensagem enviada")
 				}
 			}
@@ -63,7 +80,18 @@ func client() {
 		if inGame {
 			if waitingScreen {
 				rl.DrawText("waiting your frind", 400, 225, 20, rl.Black)
+				time.Sleep(2 * time.Second)
+				waitingScreen = false
 
+			} else {
+				buf := make([]byte, 1024)
+				n, _, err := conn.ReadFrom(buf)
+				if err != nil {
+					panic(err)
+				}
+				var game Game
+				err = json.Unmarshal(buf[:n], &game)
+				fmt.Println(game)
 			}
 			// rl.DrawRectangleRec(player, rl.Red)
 			// rl.DrawRectangleRec(enemie, rl.Blue)
@@ -102,26 +130,37 @@ func server() {
 	defer conn.Close()
 	fmt.Println("servidor udp escutando na porta 12345")
 	buf := make([]byte, 1024)
-	player := rl.Rectangle{
+	rec1 := rl.Rectangle{
 		20,
 		200,
 		20,
 		100,
 	}
-	player2 := rl.Rectangle{
+	rec2 := rl.Rectangle{
 		760,
 		200,
 		20,
 		100,
 	}
-	ball := struct {
-		pos    rl.Vector2
-		speed  rl.Vector2
-		radius float32
-	}{
-		pos:    rl.Vector2{400, 225},
-		speed:  rl.Vector2{5, 5},
-		radius: 10,
+	ball := Ball{
+		Pos:    rl.Vector2{400, 225},
+		Speed:  rl.Vector2{5, 5},
+		Radius: 10,
+	}
+	player1 := Player{
+		ID:    1,
+		Rec:   rec1,
+		Score: 0,
+	}
+	player2 := Player{
+		ID:    2,
+		Rec:   rec2,
+		Score: 0,
+	}
+	game := Game{
+		player1,
+		player2,
+		ball,
 	}
 	for {
 		n, remoteAddr, err := conn.ReadFromUDP(buf)
@@ -130,17 +169,26 @@ func server() {
 			continue
 		}
 		fmt.Printf("recebido do client %v: %s\n", remoteAddr, string(buf[:n]))
-		ball.pos.X += ball.speed.X
-		ball.pos.Y += ball.speed.Y
-		player2.Y = ball.pos.Y
-		if rl.CheckCollisionCircleRec(ball.pos, ball.radius, player2) || rl.CheckCollisionCircleRec(ball.pos, ball.radius, player) {
-			ball.speed.X = -ball.speed.X
+		data, err := json.Marshal(game)
+		if err != nil {
+			fmt.Println("erro ao serializar:", err)
+			continue
 		}
-		if rl.CheckCollisionCircleLine(ball.pos, ball.radius, rl.Vector2{0, 0}, rl.Vector2{800, 0}) || rl.CheckCollisionCircleLine(ball.pos, ball.radius, rl.Vector2{0, 450}, rl.Vector2{800, 450}) {
-			ball.speed.Y = -ball.speed.Y
+		_, err = conn.WriteToUDP(data, remoteAddr)
+		if err != nil {
+			fmt.Println("erro ao enviar dados:", err)
 		}
-		if rl.CheckCollisionCircleLine(ball.pos, ball.radius, rl.Vector2{0, 0}, rl.Vector2{0, 450}) || rl.CheckCollisionCircleLine(ball.pos, ball.radius, rl.Vector2{800, 0}, rl.Vector2{800, 450}) {
-			ball.pos = rl.Vector2{400, 250}
+		game.Ball.Pos.X += game.Ball.Speed.X
+		game.Ball.Pos.Y += game.Ball.Speed.Y
+		game.Player2.Rec.Y = game.Ball.Pos.Y
+		if rl.CheckCollisionCircleRec(game.Ball.Pos, game.Ball.Radius, rec2) || rl.CheckCollisionCircleRec(game.Ball.Pos, game.Ball.Radius, game.Player1.Rec) {
+			game.Ball.Speed.X = -game.Ball.Speed.X
+		}
+		if rl.CheckCollisionCircleLine(game.Ball.Pos, game.Ball.Radius, rl.Vector2{0, 0}, rl.Vector2{800, 0}) || rl.CheckCollisionCircleLine(game.Ball.Pos, game.Ball.Radius, rl.Vector2{0, 450}, rl.Vector2{800, 450}) {
+			game.Ball.Speed.Y = -game.Ball.Speed.Y
+		}
+		if rl.CheckCollisionCircleLine(game.Ball.Pos, game.Ball.Radius, rl.Vector2{0, 0}, rl.Vector2{0, 450}) || rl.CheckCollisionCircleLine(game.Ball.Pos, game.Ball.Radius, rl.Vector2{800, 0}, rl.Vector2{800, 450}) {
+			game.Ball.Pos = rl.Vector2{400, 250}
 		}
 
 	}
