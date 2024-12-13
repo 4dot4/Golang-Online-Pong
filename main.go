@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"time"
+	// "unsafe"
 
 	"github.com/gen2brain/raylib-go/raygui"
 	rl "github.com/gen2brain/raylib-go/raylib"
@@ -50,7 +51,7 @@ func client() {
 			}
 			conn, _ = net.DialUDP("udp", nil, serverAddr)
 			defer conn.Close()
-			fmt.Println("conectado ao servidor, digite mensagens")
+			fmt.Println("conectado ao servidor, digite mensagens", "\n")
 			isServerInited = false
 		}
 		if inGame {
@@ -58,40 +59,37 @@ func client() {
 			if rl.IsKeyDown(rl.KeyW) {
 				_, err := conn.Write([]byte("up"))
 				if err != nil {
-					fmt.Println("erro ao enviar mensagem", err)
-					continue
+					fmt.Println("erro ao enviar mensagem", err, "\n")
 				} else {
 					fmt.Println("mensagem enviada")
 				}
 			}
-			if rl.IsKeyDown(rl.KeyDown) {
+			if rl.IsKeyDown(rl.KeyS) {
 				_, err := conn.Write([]byte("down"))
 				if err != nil {
-					fmt.Println("erro ao enviar mensagem", err)
-					continue
+					fmt.Println("erro ao enviar mensagem", err, "\n")
 				} else {
 					fmt.Println("mensagem enviada")
 				}
 			}
-
 		}
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.RayWhite)
 		if inGame {
 			if waitingScreen {
 				rl.DrawText("waiting your frind", 400, 225, 20, rl.Black)
-				time.Sleep(2 * time.Second)
 				waitingScreen = false
 
 			} else {
+				conn.SetDeadline(time.Now().Add(500 * time.Millisecond))
 				buf := make([]byte, 1024)
 				n, _, err := conn.ReadFrom(buf)
 				if err != nil {
-					panic(err)
+					fmt.Println("erro brabo:", err, "\n")
 				}
 				var game Game
 				err = json.Unmarshal(buf[:n], &game)
-				fmt.Println(game)
+				fmt.Println("RECEBIDO DO SERVIDOR:", game)
 			}
 			// rl.DrawRectangleRec(player, rl.Red)
 			// rl.DrawRectangleRec(enemie, rl.Blue)
@@ -128,7 +126,7 @@ func server() {
 		return
 	}
 	defer conn.Close()
-	fmt.Println("servidor udp escutando na porta 12345")
+	fmt.Println("servidor udp escutando na porta 12345", "\n")
 	buf := make([]byte, 1024)
 	rec1 := rl.Rectangle{
 		20,
@@ -163,21 +161,21 @@ func server() {
 		ball,
 	}
 	for {
+		conn.SetDeadline(time.Now().Add(500 * time.Millisecond))
 		n, remoteAddr, err := conn.ReadFromUDP(buf)
 		if err != nil {
-			fmt.Println("erro ao ler do client", err)
-			continue
+			fmt.Println("erro ao ler do client ", err, "\n")
 		}
 		fmt.Printf("recebido do client %v: %s\n", remoteAddr, string(buf[:n]))
 		data, err := json.Marshal(game)
 		if err != nil {
-			fmt.Println("erro ao serializar:", err)
-			continue
+			fmt.Println("erro ao serializar:", err, "\n")
 		}
 		_, err = conn.WriteToUDP(data, remoteAddr)
 		if err != nil {
-			fmt.Println("erro ao enviar dados:", err)
+			fmt.Println("erro ao enviar dados:", err, "\n")
 		}
+		fmt.Println("MANDEI OS DADOS PORRA")
 		game.Ball.Pos.X += game.Ball.Speed.X
 		game.Ball.Pos.Y += game.Ball.Speed.Y
 		game.Player2.Rec.Y = game.Ball.Pos.Y
